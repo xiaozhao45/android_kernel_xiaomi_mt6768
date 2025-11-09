@@ -2,9 +2,7 @@ name: Build Kernel from dotConfig
 
 # 工作流触发条件
 on:
-  # 允许您从 Actions 标签页手动运行此工作流
   workflow_dispatch:
-  # 当推送到 'shockwave-stable-ss' 分支时自动触发
   push:
     branches:
       - shockwave-stable-ss
@@ -22,11 +20,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 步骤 1: 检出源代码 (包含您的 dotConfig.txt)
+      # 步骤 1: 检出源代码 (使用浅克隆加快速度)
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       # 步骤 2: 安装编译依赖
       - name: Install Build Dependencies
@@ -36,11 +34,13 @@ jobs:
           build-essential bc bison flex git zip \
           kmod cpio libssl-dev libelf-dev rsync
 
-      # 步骤 3: 下载工具链 (默认使用 AOSP Clang)
-      # <<<--- 注意：如果您的内核需要特定工具链，请在此处修改 Git 地址
+      # ========================================================================= #
+      #                             这里是修复之处                                #
+      # ========================================================================= #
+      # 步骤 3: 下载工具链 (使用当前有效的 'main' 分支)
       - name: Download AOSP Clang Toolchain
         run: |
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b main-kernel-build-2022 clang-llvm
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b main clang-llvm # <-- 已更新分支名
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc-aarch64
 
       # 步骤 4: 设置编译环境变量
@@ -50,18 +50,15 @@ jobs:
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
 
-      # 步骤 5: 准备内核配置文件 (核心步骤)
+      # 步骤 5: 准备内核配置文件
       - name: Prepare Kernel Config from dotConfig.txt
         run: |
-          # 'make O=out mrproper' 确保输出目录是干净的
           make O=out mrproper
-          # 将您仓库根目录的 dotConfig.txt 复制到输出目录并重命名为 .config
           cp dotConfig.txt out/.config
 
       # 步骤 6: 编译内核
       - name: Build Kernel
         run: |
-          # 这是一个健壮的编译命令，适用于大多数 Clang 构建
           make -j$(nproc) O=out \
             CC=clang \
             LD=ld.lld \
@@ -74,14 +71,8 @@ jobs:
       # 步骤 7: 打包构建产物
       - name: Package build artifacts
         run: |
-          # <<<--- 注意：请确认您最终需要的内核文件名
-          # 可能是 "Image.gz", "Image", 或者 "Image.gz-dtb"
           FINAL_KERNEL_IMAGE="Image.gz-dtb"
-
-          # 创建打包目录
           mkdir -p ${{ github.workspace }}/artifacts
-
-          # 检查文件是否存在并复制
           if [ -f "${{ github.workspace }}/out/arch/${{ env.ARCH }}/boot/${FINAL_KERNEL_IMAGE}" ]; then
             cp "${{ github.workspace }}/out/arch/${{ env.ARCH }}/boot/${FINAL_KERNEL_IMAGE}" "${{ github.workspace }}/artifacts/"
             echo "Kernel image '${FINAL_KERNEL_IMAGE}' found and copied."
@@ -91,8 +82,6 @@ jobs:
             ls -R ${{ github.workspace }}/out/arch/${{ env.ARCH }}/boot/
             exit 1
           fi
-
-          # 将本次构建使用的 .config 文件也一起打包，方便调试
           cp ${{ github.workspace }}/out/.config ${{ github.workspace }}/artifacts/config_used_for_build.txt
 
       # 步骤 8: 上传构建产物
