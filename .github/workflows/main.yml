@@ -69,7 +69,6 @@ jobs:
           make -j2 O=out \
             CC=clang \
             HOSTCC=gcc \
-            HOSTLD=ld \
             LD=ld.lld \
             AR=llvm-ar \
             NM=llvm-nm \
@@ -98,4 +97,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build-${{ github.run_number }}
-          path: ${{ github.workspace }}/artifacts/
+          path: ${{ github.workspace }}/artifacts/修复
