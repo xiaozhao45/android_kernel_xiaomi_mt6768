@@ -35,31 +35,30 @@ jobs:
           kmod cpio libssl-dev libelf-dev rsync
 
       # ========================================================================= #
-      #                             这里是优化之处                                #
+      #                             这里是核心修复之处                            #
       # ========================================================================= #
-      # <<<--- 新增：缓存工具链步骤
-      - name: Cache Toolchain
+      # 步骤 3.1: 缓存 Proton-Clang 工具链
+      - name: Cache Proton-Clang
         id: cache-clang
         uses: actions/cache@v4
         with:
-          path: |
-            clang-llvm
-            gcc-aarch64
-          key: toolchain-${{ runner.os }}-main
+          path: clang-llvm
+          # 使用新的 key 来避免使用旧的、有问题的缓存
+          key: toolchain-${{ runner.os }}-proton-clang
 
-      # <<<--- 修改：仅在缓存未命中时下载
-      # 步骤 3: 下载工具链
-      - name: Download AOSP Clang Toolchain
+      # 步骤 3.2: 下载 Proton-Clang (一个工具链就够了)
+      - name: Download Proton-Clang Toolchain
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b main clang-llvm
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc-aarch64
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang-llvm
 
-      # 步骤 4: 设置编译环境变量
+      # 步骤 4: 设置编译环境变量 (现在更简单了)
       - name: Set up build environment
         run: |
-          echo "PATH=${{ github.workspace }}/clang-llvm/bin:${{ github.workspace }}/gcc-aarch64/bin:${PATH}" >> $GITHUB_ENV
+          # Proton-Clang 包含了所有工具，只需要添加它自己的 bin 目录
+          echo "PATH=${{ github.workspace }}/clang-llvm/bin:${PATH}" >> $GITHUB_ENV
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          # 即使我们不用 GCC 编译，内核脚本仍需要这个变量来找到链接器等工具
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
 
       # 步骤 5: 准备内核配置文件
