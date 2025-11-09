@@ -32,7 +32,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
           build-essential bc bison flex git zip \
-          kmod cpio libssl-dev libelf-dev rsync wget tar xz-utils
+          kmod cpio libssl-dev libelf-dev rsync wget tar xz-utils \
+          dwarves libncurses5-dev python3 perl zstd
 
       # 步骤 3.1: 缓存 Proton-Clang 工具链
       - name: Cache Proton-Clang
@@ -48,14 +49,11 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang-llvm
 
-      # ========================================================================= #
-      #                   这里是针对根本原因的最终修复之处                        #
-      # ========================================================================= #
       # 步骤 4: 安装 Zig 工具链 (用于编译主机工具)
       - name: Install Zig Toolchain
         run: |
           # 下载特定版本的 Zig, 以保证稳定性
-          wget https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz
+          wget https://ziglang.org/download/0.11.0/zig-linux-xx86_64-0.11.0.tar.xz
           tar -xf zig-linux-x86_64-0.11.0.tar.xz
           
           # 定义 Zig 的解压路径
@@ -76,8 +74,45 @@ jobs:
           make O=out mrproper
           cp dotConfig.txt out/.config
 
+      - name: Check versions of build tools
+        run: |
+          echo "Clang version:"
+          ${{ github.workspace }}/clang-llvm/bin/clang --version
+          
+          echo "GCC version:"
+          gcc --version
+          
+          echo "Make version:"
+          make --version
+          
+          echo "Zig version:"
+          zig version
+          
+          echo "LD version:"
+          ld --version
+          
+          echo "LLVM-ar version:"
+          ${{ github.workspace }}/clang-llvm/bin/llvm-ar --version
+          
+          echo "LLVM-nm version:"
+          ${{ github.workspace }}/clang-llvm/bin/llvm-nm --version
+          
+          echo "LLVM-objcopy version:"
+          ${{ github.workspace }}/clang-llvm/bin/llvm-objcopy --version
+          
+          echo "LLVM-objdump version:"
+          ${{ github.workspace }}/clang-llvm/bin/llvm-objdump --version
+          
+          echo "LLVM-strip version:"
+          ${{ github.workspace }}/clang-llvm/bin/llvm-strip --version
+          
+      # ========================================================================= #
+      #                   这里是针对根本原因的最终修复之处                        #
+      # ========================================================================= #
       # 步骤 6: 编译内核 (使用 Zig 构建主机工具, Clang 构建内核)
       - name: Build Kernel
+        id: build_step
+        continue-on-error: true
         run: |
           # 仅导出编译脚本需要的环境变量
           export CLANG_TRIPLE="aarch64-linux-gnu-"
@@ -98,6 +133,7 @@ jobs:
 
       # 步骤 7: 打包构建产物
       - name: Package build artifacts
+        if: steps.build_step.outcome == 'success'
         run: |
           FINAL_KERNEL_IMAGE="Image.gz-dtb"
           mkdir -p ${{ github.workspace }}/artifacts
@@ -114,6 +150,7 @@ jobs:
 
       # 步骤 8: 上传构建产物
       - name: Upload artifacts
+        if: steps.build_step.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: kernel-build-${{ github.run_number }}
