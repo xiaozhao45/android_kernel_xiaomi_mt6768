@@ -34,31 +34,25 @@ jobs:
           build-essential bc bison flex git zip \
           kmod cpio libssl-dev libelf-dev rsync
 
-      # ========================================================================= #
-      #                             这里是核心修复之处                            #
-      # ========================================================================= #
       # 步骤 3.1: 缓存 Proton-Clang 工具链
       - name: Cache Proton-Clang
         id: cache-clang
         uses: actions/cache@v4
         with:
           path: clang-llvm
-          # 使用新的 key 来避免使用旧的、有问题的缓存
           key: toolchain-${{ runner.os }}-proton-clang
 
-      # 步骤 3.2: 下载 Proton-Clang (一个工具链就够了)
+      # 步骤 3.2: 下载 Proton-Clang
       - name: Download Proton-Clang Toolchain
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang-llvm
 
-      # 步骤 4: 设置编译环境变量 (现在更简单了)
+      # 步骤 4: 设置编译环境变量
       - name: Set up build environment
         run: |
-          # Proton-Clang 包含了所有工具，只需要添加它自己的 bin 目录
           echo "PATH=${{ github.workspace }}/clang-llvm/bin:${PATH}" >> $GITHUB_ENV
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          # 即使我们不用 GCC 编译，内核脚本仍需要这个变量来找到链接器等工具
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
 
       # 步骤 5: 准备内核配置文件
@@ -67,11 +61,16 @@ jobs:
           make O=out mrproper
           cp dotConfig.txt out/.config
 
-      # 步骤 6: 编译内核
+      # ========================================================================= #
+      #                             这里是修复之处                                #
+      # ========================================================================= #
+      # 步骤 6: 编译内核 (指定主机编译器和链接器)
       - name: Build Kernel
         run: |
           make -j$(nproc) O=out \
             CC=clang \
+            HOSTCC=gcc \
+            HOSTLD=ld \
             LD=ld.lld \
             AR=llvm-ar \
             NM=llvm-nm \
