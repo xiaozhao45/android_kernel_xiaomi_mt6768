@@ -32,7 +32,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
           build-essential bc bison flex git zip \
-          kmod cpio libssl-dev libelf-dev rsync
+          kmod cpio libssl-dev libelf-dev rsync wget tar xz-utils
 
       # 步骤 3.1: 缓存 Proton-Clang 工具链
       - name: Cache Proton-Clang
@@ -49,35 +49,46 @@ jobs:
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang-llvm
 
       # ========================================================================= #
-      #                   这里是针对根本原因的最终修复之处                        #
+      #                   使用 Zig 构建主机工具的全新方案                         #
       # ========================================================================= #
-      # 步骤 4: 准备内核配置文件 (无需修改全局 PATH)
+      # 步骤 4: 安装 Zig 工具链 (用于编译主机工具)
+      - name: Install Zig Toolchain
+        run: |
+          # 下载特定版本的 Zig, 以保证稳定性
+          wget https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz
+          tar -xf zig-linux-x86_64-0.11.0.tar.xz
+          # 将 Zig 的路径添加到 GitHub Actions 的 PATH 环境变量中
+          echo "${{ github.workspace }}/zig-linux-x86_64-0.11.0" >> $GITHUB_PATH
+          # 验证安装
+          zig version
+
+      # 步骤 5: 准备内核配置文件
       - name: Prepare Kernel Config
         run: |
           make O=out mrproper
           cp dotConfig.txt out/.config
 
-      # 步骤 5: 编译内核 (使用 export 设置临时环境变量)
+      # 步骤 6: 编译内核 (使用 Zig 构建主机工具, Clang 构建内核)
       - name: Build Kernel
         run: |
-          # 将工具链路径导出为临时环境变量
-          export PATH="${{ github.workspace }}/clang-llvm/bin:${PATH}"
+          # 仅导出编译脚本需要的环境变量
           export CLANG_TRIPLE="aarch64-linux-gnu-"
           export CROSS_COMPILE="aarch64-linux-gnu-"
           
           # 执行编译
+          # HOSTCC="zig cc" -> 使用 Zig 作为主机 C 编译器来构建 scripts/ 等工具
+          # CC, LD 等 -> 仍然使用 Clang/LLVM 工具链来交叉编译内核本身
           make -j2 O=out \
-            CC=clang \
-            HOSTCC=gcc \
-            HOSTLD=/usr/bin/ld \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip
+            CC="${{ github.workspace }}/clang-llvm/bin/clang" \
+            HOSTCC="zig cc" \
+            LD="${{ github.workspace }}/clang-llvm/bin/ld.lld" \
+            AR="${{ github.workspace }}/clang-llvm/bin/llvm-ar" \
+            NM="${{ github.workspace }}/clang-llvm/bin/llvm-nm" \
+            OBJCOPY="${{ github.workspace }}/clang-llvm/bin/llvm-objcopy" \
+            OBJDUMP="${{ github.workspace }}/clang-llvm/bin/llvm-objdump" \
+            STRIP="${{ github.workspace }}/clang-llvm/bin/llvm-strip"
 
-      # 步骤 6: 打包构建产物
+      # 步骤 7: 打包构建产物
       - name: Package build artifacts
         run: |
           FINAL_KERNEL_IMAGE="Image.gz-dtb"
@@ -93,7 +104,7 @@ jobs:
           fi
           cp ${{ github.workspace }}/out/.config ${{ github.workspace }}/artifacts/config_used_for_build.txt
 
-      # 步骤 7: 上传构建产物
+      # 步骤 8: 上传构建产物
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
